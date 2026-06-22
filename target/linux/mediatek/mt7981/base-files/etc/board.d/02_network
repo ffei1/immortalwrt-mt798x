@@ -128,6 +128,23 @@ mtk_facrory_write_mac()
 	fi
 }
 
+mtk_facrory_write_mac_firmware()
+{
+	local offset=$1
+	local macaddr=$2 #aa:bb:cc:dd:ee:ff
+	local data=""
+
+	if [ -n "$macaddr" ]; then
+		local i=1
+		for x in ${macaddr//:/ }; do
+			[ $i -gt 6 ] && break
+			data=${data}"\x${x}"
+			i=$((i+1))
+		done
+		printf "${data}" | dd conv=notrunc of=/lib/firmware/MT7981_iPAiLNA_EEPROM.bin bs=1 seek=$((${offset}))
+	fi
+}
+
 mtk_factory_get_byte()
 {
 	local part_name=$1
@@ -247,6 +264,10 @@ mediatek_setup_macs()
 		wan_mac=$(mtd_get_mac_binary $part_name 0xa0024)
 		lan_mac=$(mtd_get_mac_binary $part_name 0xa002a)
 		label_mac=$lan_mac
+		local wifi0_mac="$(mtd_get_mac_binary $part_name 0x04)"
+		sed -i "/^MacAddress=.*/ {s/.*/MacAddress=$wifi0_mac/;b;}; \$aMacAddress=$wifi0_mac" /etc/wireless/mediatek/mt7981.dbdc.b0.dat
+		local wifi1_mac="$(macaddr_setbit_la $wifi0_mac)"
+		sed -i "/^MacAddress=.*/ {s/.*/MacAddress=$wifi1_mac/;b;}; \$aMacAddress=$wifi1_mac" /etc/wireless/mediatek/mt7981.dbdc.b1.dat
 		;;
 	h3c,nx30pro)
 		wan_mac=$(mtd_get_mac_ascii pdt_data_1 ethaddr)

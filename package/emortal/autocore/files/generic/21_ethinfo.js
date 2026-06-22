@@ -125,7 +125,11 @@ return baseclass.extend({
 
       if (label.startsWith('WAN')) {
         foundWAN = true;
-        stats = netdevs[board.network.wan.device].stats;
+        if (board && board.network && board.network.wan && board.network.wan.device && netdevs[board.network.wan.device]) {
+            stats = netdevs[board.network.wan.device].stats || { tx_bytes: 0, rx_bytes: 0 };
+        } else {
+            stats = { tx_bytes: 0, rx_bytes: 0 };
+        }
         const { tx_bytes, rx_bytes } = stats;
         ethPorts.unshift(
           portDom(link, duplex, 'WAN', speed, tx_bytes, rx_bytes)
@@ -139,7 +143,15 @@ return baseclass.extend({
 
     if (foundWAN) return ethPorts;
 
-    const wan = netdevs[board.network.wan.device];
+    let wan;
+    if (board && board.network && board.network.wan && board.network.wan.device && netdevs[board.network.wan.device]) {
+        wan = netdevs[board.network.wan.device];
+    } else {
+        wan = {
+            link: { speed: 0, duplex: false, carrier: false },
+            stats: { tx_bytes: 0, rx_bytes: 0 }
+        };
+    }
     const { speed, duplex, carrier } = wan.link;
     const { tx_bytes, rx_bytes } = wan.stats;
     ethPorts.unshift(
@@ -153,11 +165,13 @@ return baseclass.extend({
     const netdevs = data[1];
 
     const ethPorts = [];
-    const wan = board.network.wan.device;
+    const wan = (board && board.network && board.network.wan && board.network.wan.device)
+        ? board.network.wan.device
+        : 'wan';
     let devices = `${wan},lan0,lan1,lan2,lan3,lan4,lan5,lan6`;
     devices = devices.split(',');
     for (const device of devices) {
-      if (device in netdevs === false) continue;
+      if (!netdevs || device in netdevs === false) continue;
       const dev = netdevs[device];
       const label = dev.name;
       const { speed, duplex, carrier } = dev.link;
