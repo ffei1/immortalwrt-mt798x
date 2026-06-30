@@ -15,16 +15,3 @@
  			MTWF_DBG(pAd, DBG_CAT_PROTO, CATPROTO_RRM, DBG_LVL_INFO, "pSsid=%s\n", ssidbuf);
  			MTWF_DBG(pAd, DBG_CAT_PROTO, CATPROTO_RRM, DBG_LVL_INFO, "SsidLen=%d\n", SsidLen);
  			RRM_EnqueueNeighborRep(pAd, pEntry, DialogToken, pSsid, SsidLen);
-@@ -2590,11 +2590,10 @@ VOID RRM_PeerMeasureReqAction(
- 		ScanTab = get_scan_tab_by_wdev(pAd, wdev);
- 		if (!ScanTab)
- 			return;
--		ret = snprintf(ssidbuf, sizeof(ssidbuf), "%s", pSsid);
-+		ret = snprintf(ssidbuf, sizeof(ssidbuf), "%.*s", SsidLen, pSsid);
- 		if (os_snprintf_error(sizeof(ssidbuf), ret)) {
- 			MTWF_DBG(pAd, DBG_CAT_PROTO, CATPROTO_RRM, DBG_LVL_ERROR, "%s : snprintf error\n", __func__);
- 			return;
- 		}
--		ssidbuf[SsidLen] = '\0';
- 		MTWF_DBG(NULL, DBG_CAT_PROTO, CATPROTO_RRM, DBG_LVL_DEBUG, "pSsid=%s\n", ssidbuf);
- 		MTWF_DBG(NULL, DBG_CAT_PROTO, CATPROTO_RRM, DBG_LVL_DEBUG, "SsidLen=%d\n", SsidLen);
