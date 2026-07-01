@@ -1,0 +1,22 @@
+/dts-v1/;
+#include "mt7981-sn-r1-common.dtsi"
+
+/ {
+	model = "SN R1";
+	compatible = "sn,r1", "mediatek,mt7981";
+};
+
+&mmc0 {
+	bus-width = <8>;
+	cap-mmc-highspeed;
+	max-frequency = <52000000>;
+	no-sd;
+	no-sdio;
+	non-removable;
+	pinctrl-names = "default", "state_uhs";
+	pinctrl-0 = <&mmc0_pins_default>;
+	pinctrl-1 = <&mmc0_pins_uhs>;
+	vmmc-supply = <&reg_3p3v>;
+	non-removable;
+	status = "okay";
+};

@@ -737,6 +737,7 @@ setup_model()
 	bananapi,bpi-r3mini* |\
 	netcore,n60 |\
 	glinet,gl-mt6000|\
+	ruijie,rg-x60-new* |\
 	ruijie,rg-x60-pro* |\
 	jdcloud,re-cp-03 |\
 	tplink,tl-xdr608* |\
@@ -765,6 +766,9 @@ setup_model()
 	newland,nl-wr9103 |\
 	nradio,wt9103 |\
 	ruijie,rg-x30e* |\
+	philips,hy3000 |\
+	sn,r1* |\
+	*zbtlink,zbt-z8103ax* |\
 	*7981*)
 		MT7981_whnat $num_of_wifi $usbnet
 		;;

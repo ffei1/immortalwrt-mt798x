@@ -16,6 +16,8 @@
 /overlay
 /package/feeds
 /package/openwrt-packages
+/package/addtion-luci-app
+/package/OpenAppFilter
 /*.patch
 key-build*
 *.orig
@@ -34,3 +36,5 @@ git-src
 !/dl/datconf*
 !/dl/mt79*
 !/dl/warp*
+
+.config-*

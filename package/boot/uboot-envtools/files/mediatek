@@ -16,7 +16,9 @@ case "$board" in
 cmcc,rax3000m-emmc |\
 cmcc,xr30-emmc |\
 glinet,gl-mt6000 |\
-jdcloud,re-cp-03)
+jdcloud,re-cp-03 |\
+philips,hy3000 |\
+sn,r1*)
 	env_dev=$(find_mmc_part "u-boot-env")
 	[ -n "$env_dev" ] && ubootenv_add_uci_config "$env_dev" "0" "0x80000"
 	;;
@@ -29,6 +31,7 @@ livinet,zr-3020*)
 	;;
 h3c,nx30pro |\
 *clt,r30b1* |\
+ruijie,rg-x60-new* |\
 ruijie,rg-x60-pro* |\
 cmcc,xr30 |\
 cmcc,rax3000m)
@@ -40,9 +43,11 @@ cmcc,rax3000m)
 	;;
 xiaomi,mi-router-ax3000t* |\
 xiaomi,mi-router-wr30u* |\
-xiaomi,redmi-router-ax6000*)
+xiaomi,redmi-router-ax6000* |\
+*zbtlink,zbt-z8103ax*)
 	ubootenv_add_uci_config "/dev/mtd2" "0x0" "0x10000" "0x20000" "1"
 	;;
+cmcc_a10|\
 nradio,wt9103 |\
 *konka,komi-a31*)
 	ubootenv_add_uci_config "/dev/mtd2" "0x0" "0x20000" "0x80000" "1"

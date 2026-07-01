@@ -55,9 +55,9 @@ To build your own firmware you need a GNU/Linux, BSD or MacOSX system (case sens
   4. Run `./scripts/feeds install -a` to install symlinks for all obtained packages into package/feeds/
   5. Copy the configuration file for your device from the `defconfig` directory to the project root directory and rename it `.config`
      
-     ```
+     ```bash
      # MT7981
-     cp -f defconfig/mt7981-ax3000.config .config
+     cp -f defconfig/mt7981-ax3000-256m.config .config
 
      # MT7986
      cp -f defconfig/mt7986-ax6000.config .config
@@ -66,8 +66,11 @@ To build your own firmware you need a GNU/Linux, BSD or MacOSX system (case sens
      cp -f defconfig/mt7986-ax6000-256m.config .config
      ```
      
-  7. Run `make menuconfig` to select your preferred configuration for the toolchain, target system & firmware packages.
+  6. Run `make menuconfig` to select your preferred configuration for the toolchain, target system & firmware packages.
+  7. Run `make download -j$(nproc)` to download all sources. This will download the cross-compile toolchain and all sources for the GNU/Linux kernel & all chosen applications for your target system.
   8. Run `make -j$(nproc)` to build your firmware. This will download all sources, build the cross-compile toolchain and then cross-compile the GNU/Linux kernel & all chosen applications for your target system.
+
+  > If you build first, recommand to run `make -j1 V=s` to get more verbose output and easier to debug.
 
   ### Related Repositories
   The main repository uses multiple sub-repositories to manage packages of different categories. All packages are installed via the ImmortalWrt package manager called opkg. If you're looking to develop the web interface or port packages to ImmortalWrt, please find the fitting repository below.
