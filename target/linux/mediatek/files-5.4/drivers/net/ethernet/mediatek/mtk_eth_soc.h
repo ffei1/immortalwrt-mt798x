@@ -148,9 +148,6 @@
 #define MTK_PDMA_IRQ_NUM	(4)
 #define MTK_MAX_IRQ_NUM		(MTK_FE_IRQ_NUM + MTK_PDMA_IRQ_NUM)
 
-/* PDMA HW LRO Alter Flow Timer Register */
-#define MTK_PDMA_LRO_ALT_REFRESH_TIMER	0x1c
-
 /* Frame Engine Interrupt Grouping Register */
 #define MTK_FE_INT_GRP		0x20
 
@@ -1770,6 +1767,7 @@ enum mkt_eth_capabilities {
 	MTK_NETSYS_V2_BIT,
 	MTK_NETSYS_RX_V2_BIT,
 	MTK_NETSYS_RX_9K_BIT,
+	MTK_PPE_32K_BIT,
 	MTK_NETSYS_V3_BIT,
 	MTK_HWTSTAMP_BIT,
 	MTK_SOC_MT7628_BIT,
@@ -1827,6 +1825,7 @@ enum mkt_eth_capabilities {
 #define MTK_NETSYS_V2		BIT_ULL(MTK_NETSYS_V2_BIT)
 #define MTK_NETSYS_RX_V2	BIT(MTK_NETSYS_RX_V2_BIT)
 #define MTK_NETSYS_RX_9K	BIT_ULL(MTK_NETSYS_RX_9K_BIT)
+#define MTK_PPE_32K         BIT_ULL(MTK_PPE_32K_BIT)
 #define MTK_NETSYS_V3		BIT_ULL(MTK_NETSYS_V3_BIT)
 #define MTK_HWTSTAMP		BIT_ULL(MTK_HWTSTAMP_BIT)
 #define MTK_SOC_MT7628		BIT_ULL(MTK_SOC_MT7628_BIT)
@@ -1941,12 +1940,12 @@ enum mkt_eth_capabilities {
 
 #define MT7986_CAPS   (MTK_PDMA_INT | MTK_GMAC1_SGMII | MTK_GMAC2_SGMII | \
 		       MTK_MUX_GMAC12_TO_GEPHY_SGMII | MTK_QDMA_V1_2 | \
-		       MTK_NETSYS_V2 | MTK_RSS)
+		       MTK_NETSYS_V2 | MTK_RSS | MTK_PPE_32K | MTK_RSTCTRL_PPE1)
 
 #define MT7981_CAPS   (MTK_PDMA_INT | MTK_GMAC1_SGMII | MTK_GMAC2_SGMII | \
 		       MTK_GMAC2_GEPHY | MTK_MUX_GMAC12_TO_GEPHY_SGMII | MTK_QDMA_V1_2 | \
 		       MTK_MUX_U3_GMAC23_TO_QPHY | MTK_U3_COPHY_V2 | \
-		       MTK_NETSYS_V2 | MTK_RSS)
+		       MTK_NETSYS_V2 | MTK_RSS | MTK_RSTCTRL_PPE1)
 
 #define MT7988_CAPS   (MTK_GMAC1_SGMII | MTK_GMAC2_SGMII | MTK_GMAC3_SGMII | \
 		       MTK_PDMA_INT | MTK_MUX_GMAC123_TO_GEPHY_SGMII | MTK_QDMA_V1_3 | \
@@ -1995,6 +1994,7 @@ struct mtk_reg_map {
 		u32	irq_mask;	/* interrupt mask */
 		u32	int_grp;	/* interrupt group1 */
 		u32	int_grp2;	/* interrupt group2 */
+		u32	lro_alt_timer;	/* lro auto-learn refresh timer */
 		u32	lro_ctrl_dw0;	/* lro control dword0 */
 		u32	lro_alt_score_delta;	/* lro auto-learn score delta */
 		u32	lro_rx_dly_int;	/* lro rx ring delay interrupt */
@@ -2438,6 +2438,7 @@ extern u32 dbg_show_level;
 extern u32 (*mtk_get_tnl_netsys_params)(struct sk_buff *skb);
 extern struct net_device *(*mtk_get_tnl_dev)(u8 tops_crsn);
 extern void (*mtk_set_tops_crsn)(struct sk_buff *skb, u8 tops_crsn);
+extern void (*mtk_crypto_set_dec_secpath)(struct sk_buff *skb, u16 cdrt);
 
 /* read the hardware status register */
 void mtk_stats_update_mac(struct mtk_mac *mac);
@@ -2462,6 +2463,9 @@ int mtk_mac2xgmii_id(struct mtk_eth *eth, int mac_id);
 struct phylink_pcs *mtk_usxgmii_select_pcs(struct mtk_usxgmii *ss, unsigned int id);
 int mtk_usxgmii_init(struct mtk_eth *eth, struct device_node *r);
 int mtk_toprgu_init(struct mtk_eth *eth, struct device_node *r);
+
+/* legacy external PHY (2.5G WAN PHY) initialisation, see mtk_eth_rtl822x.c */
+int mtk_soc_extphy_init(struct mtk_eth *eth, int addr);
 
 void mtk_eth_set_dma_device(struct mtk_eth *eth, struct device *dma_dev);
 u32 mtk_rss_indr_table(struct mtk_rss_params *rss_params, int index);

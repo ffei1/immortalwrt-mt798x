@@ -21,7 +21,9 @@
 #include <linux/interrupt.h>
 #include <linux/pinctrl/devinfo.h>
 #include <linux/phylink.h>
+#include <linux/gpio.h>
 #include <linux/gpio/consumer.h>
+#include <linux/of_gpio.h>
 #include <net/dsa.h>
 
 #include "mtk_eth_soc.h"
@@ -63,6 +65,7 @@ static const struct mtk_reg_map mtk_reg_map = {
 		.irq_mask	= 0x0a28,
 		.int_grp	= 0x0a50,
 		.int_grp2	= 0x0a54,
+		.lro_alt_timer	= 0x001c,
 		.lro_ctrl_dw0	= 0x0980,
 		.lro_alt_score_delta	= 0x0a4c,
 		.lro_rx_dly_int	= 0x0a70,
@@ -121,6 +124,7 @@ static const struct mtk_reg_map mt7628_reg_map = {
 		.irq_mask	= 0x0a28,
 		.int_grp	= 0x0a50,
 		.int_grp2	= 0x0a54,
+		.lro_alt_timer	= 0x001c,
 		.lro_ctrl_dw0	= 0x0980,
 		.lro_alt_score_delta	= 0x0a4c,
 		.lro_rx_dly_int	= 0x0a70,
@@ -147,6 +151,7 @@ static const struct mtk_reg_map mt7986_reg_map = {
 		.irq_mask	= 0x4228,
 		.int_grp	= 0x4250,
 		.int_grp2	= 0x4254,
+		.lro_alt_timer	= 0x001c,
 		.lro_ctrl_dw0	= 0x4180,
 		.lro_alt_score_delta	= 0x424c,
 		.lro_rx_dly_int	= 0x4270,
@@ -210,6 +215,7 @@ static const struct mtk_reg_map mt7988_reg_map = {
 		.irq_mask	= 0x6a28,
 		.int_grp	= 0x6a50,
 		.int_grp2	= 0x6a54,
+		.lro_alt_timer	= 0x6c00,
 		.lro_ctrl_dw0	= 0x6c08,
 		.lro_alt_score_delta	= 0x6c1c,
 		.lro_alt_dbg	= 0x6c40,
@@ -299,6 +305,8 @@ struct net_device *(*mtk_get_tnl_dev)(u8 tops_crsn) = NULL;
 EXPORT_SYMBOL(mtk_get_tnl_dev);
 void (*mtk_set_tops_crsn)(struct sk_buff *skb, u8 tops_crsn) = NULL;
 EXPORT_SYMBOL(mtk_set_tops_crsn);
+void (*mtk_crypto_set_dec_secpath)(struct sk_buff *skb, u16 cdrt) = NULL;
+EXPORT_SYMBOL(mtk_crypto_set_dec_secpath);
 
 void mtk_w32(struct mtk_eth *eth, u32 val, unsigned reg)
 {
@@ -323,18 +331,19 @@ u32 mtk_m32(struct mtk_eth *eth, u32 mask, u32 set, unsigned reg)
 
 static int mtk_mdio_busy_wait(struct mtk_eth *eth)
 {
-	unsigned long t_start = jiffies;
+	u32 val;
+	int ret;
 
-	while (1) {
-		if (!(mtk_r32(eth, MTK_PHY_IAC) & PHY_IAC_ACCESS))
-			return 0;
-		if (time_after(jiffies, t_start + PHY_IAC_TIMEOUT))
-			break;
-		cond_resched();
-	}
+	ret = read_poll_timeout(mtk_r32, val,
+				!(val & PHY_IAC_ACCESS),
+				10,
+				jiffies_to_usecs(PHY_IAC_TIMEOUT),
+				false,
+				eth, MTK_PHY_IAC);
+	if (ret)
+		dev_err(eth->dev, "mdio: MDIO timeout\n");
 
-	dev_err(eth->dev, "mdio: MDIO timeout\n");
-	return -1;
+	return ret;
 }
 
 u32 _mtk_mdio_write(struct mtk_eth *eth, int phy_addr,
@@ -706,6 +715,25 @@ static int mtk_mac_prepare(struct phylink_config *config, unsigned int mode,
 	return 0;
 }
 
+static u32 mtk_syscfg0_sgmii_mask(struct mtk_mac *mac)
+{
+	struct mtk_eth *eth = mac->hw;
+
+	if (MTK_HAS_CAPS(eth->soc->caps, MTK_NETSYS_V1))
+		return SYSCFG0_SGMII_MASK;
+
+	switch (mac->id) {
+	case MTK_GMAC1_ID:
+		return SYSCFG0_SGMII_GMAC1_V2;
+	case MTK_GMAC2_ID:
+		return SYSCFG0_SGMII_GMAC2_V2;
+	case MTK_GMAC3_ID:
+		return SYSCFG0_SGMII_GMAC3_V2;
+	default:
+		return 0;
+	}
+}
+
 static void mtk_mac_config(struct phylink_config *config, unsigned int mode,
 			   const struct phylink_link_state *state)
 {
@@ -713,7 +741,7 @@ static void mtk_mac_config(struct phylink_config *config, unsigned int mode,
 					   phylink_config);
 	struct mtk_eth *eth = mac->hw;
 	struct net_device *dev = eth->netdev[mac->id];
-	u32 i;
+	u32 i, sgmii_mask;
 	int val = 0, ge_mode, err = 0;
 	unsigned int mac_type = mac->type;
 
@@ -846,12 +874,13 @@ static void mtk_mac_config(struct phylink_config *config, unsigned int mode,
 		/* The path GMAC to SGMII will be enabled once the SGMIISYS is
 		 * being setup done.
 		 */
+		sgmii_mask = mtk_syscfg0_sgmii_mask(mac);
+
 		spin_lock(&eth->syscfg0_lock);
 		regmap_read(eth->ethsys, ETHSYS_SYSCFG0, &val);
 
 		regmap_update_bits(eth->ethsys, ETHSYS_SYSCFG0,
-				   SYSCFG0_SGMII_MASK,
-				   ~(u32)SYSCFG0_SGMII_MASK);
+				   sgmii_mask, 0);
 
 		/* Save the syscfg0 value for mac_finish */
 		mac->syscfg0 = val;
@@ -917,9 +946,11 @@ static int mtk_mac_finish(struct phylink_config *config, unsigned int mode,
 	/* Enable SGMII */
 	if (interface == PHY_INTERFACE_MODE_SGMII ||
 	    phy_interface_mode_is_8023z(interface)) {
+		u32 sgmii_mask = mtk_syscfg0_sgmii_mask(mac);
+
 		spin_lock(&eth->syscfg0_lock);
 		regmap_update_bits(eth->ethsys, ETHSYS_SYSCFG0,
-				   SYSCFG0_SGMII_MASK, mac->syscfg0);
+				   sgmii_mask, mac->syscfg0);
 		spin_unlock(&eth->syscfg0_lock);
 	}
 
@@ -1211,9 +1242,10 @@ out:
 	mtk_w32(eth, val, MTK_QTX_SCH(idx));
 }
 
-static void mtk_mac_link_up(struct phylink_config *config, unsigned int mode,
-			    phy_interface_t interface,
-			    struct phy_device *phy)
+static void mtk_mac_link_up(struct phylink_config *config,
+			    struct phy_device *phy,
+			    unsigned int mode, phy_interface_t interface,
+			    int speed, int duplex, bool tx_pause, bool rx_pause)
 {
 	struct mtk_mac *mac = container_of(config, struct mtk_mac,
 					   phylink_config);
@@ -2236,15 +2268,16 @@ static void mtk_tx_set_dma_desc_v3(struct sk_buff *skb, struct net_device *dev, 
 		/* carry cdrt index for encryption */
 		cdrt = skb_hnat_cdrt(skb);
 		skb_hnat_magic_tag(skb) = 0;
-		 }
+		tport = EIP197_TPORT;
+	}
 #else
 	else if (unlikely(skb->inner_protocol == IPPROTO_ESP &&
 		 skb_tnl_cdrt(skb) && is_tnl_tag_valid(skb))) {
 		cdrt = skb_tnl_cdrt(skb);
 		skb_tnl_magic_tag(skb) = 0;
-		 }
-#endif
 		tport = EIP197_TPORT;
+	}
+#endif
 
 	if (tport) {
 		data &= ~(TX_DMA_TPORT_MASK << TX_DMA_TPORT_SHIFT);
@@ -2569,12 +2602,27 @@ static void mtk_wake_queue(struct mtk_eth *eth, u32 ring_no)
 	}
 }
 
+static bool mtk_skb_has_small_frag(struct sk_buff *skb)
+{
+	int i, min_size = 16;
+
+	if (skb_headlen(skb) < min_size)
+		return true;
+
+	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++)
+		if (skb_frag_size(&skb_shinfo(skb)->frags[i]) < min_size)
+			return true;
+
+	return false;
+}
+
 static int mtk_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct mtk_mac *mac = netdev_priv(dev);
 	struct mtk_eth *eth = mac->hw;
 	struct mtk_tx_ring *ring;
 	struct net_device_stats *stats = &dev->stats;
+	struct sk_buff *segs, *next;
 	struct netdev_queue *txq;
 	bool gso = false;
 	int tx_num;
@@ -2610,6 +2658,17 @@ static int mtk_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		return NETDEV_TX_BUSY;
 	}
 
+	if (skb_is_gso(skb) && mtk_skb_has_small_frag(skb)) {
+		segs = skb_gso_segment(skb, dev->features & ~NETIF_F_ALL_TSO);
+		if (IS_ERR(segs))
+			goto drop;
+
+		if (segs) {
+			consume_skb(skb);
+			skb = segs;
+		}
+	}
+
 	/* TSO: fill MSS info in tcp checksum field */
 	if (skb_is_gso(skb)) {
 		if (skb_cow_head(skb, 0)) {
@@ -2625,8 +2684,13 @@ static int mtk_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		}
 	}
 
-	if (mtk_tx_map(skb, dev, tx_num, ring, gso) < 0)
-		goto drop;
+	skb_list_walk_safe(skb, skb, next) {
+		if ((mtk_skb_has_small_frag(skb) && skb_linearize(skb)) ||
+		    mtk_tx_map(skb, dev, tx_num, ring, gso) < 0) {
+				stats->tx_dropped++;
+				dev_kfree_skb_any(skb);
+		}
+	}
 
 	if (unlikely(atomic_read(&ring->free_count) <= ring->thresh)) {
 		if (MTK_HAS_CAPS(eth->soc->caps, MTK_QDMA))
@@ -2821,6 +2885,9 @@ static int mtk_poll_rx(struct napi_struct *napi, int budget,
 			trace_printk("[%s] rxd:(entry=%x,sport=%x,reason=%x,alg=%x\n",
 				     __func__, skb_hnat_entry(skb), skb_hnat_sport(skb),
 				     skb_hnat_reason(skb), skb_hnat_alg(skb));
+
+		if (mtk_crypto_set_dec_secpath)
+			mtk_crypto_set_dec_secpath(skb, skb_hnat_cdrt(skb));
 #endif
 		if (mtk_set_tops_crsn && skb && tops_crsn)
 			mtk_set_tops_crsn(skb, tops_crsn);
@@ -3564,7 +3631,10 @@ static int mtk_hwlro_rx_init(struct mtk_eth *eth)
 	lro_ctrl_dw0 |= MTK_LRO_ALT_PKT_CNT_MODE;
 
 	/* enable L4 PSH flag check */
-	lro_ctrl_dw0 |= MTK_LRO_L4_CTRL_PSH_EN;
+	if (MTK_HAS_CAPS(eth->soc->caps, MTK_NETSYS_RX_V2) &&
+	    !MTK_HAS_CAPS(eth->soc->caps, MTK_GLO_MEM_ACCESS)) {
+		lro_ctrl_dw0 |= MTK_LRO_L4_CTRL_PSH_EN;
+	}
 
 	/* bandwidth threshold setting */
 	mtk_w32(eth, MTK_HW_LRO_BW_THRE, reg_map->pdma.lro_ctrl_dw0 + 0x8);
@@ -3574,7 +3644,7 @@ static int mtk_hwlro_rx_init(struct mtk_eth *eth)
 
 	/* set refresh timer for altering flows to 1 sec. (unit: 20us) */
 	mtk_w32(eth, (MTK_HW_LRO_TIMER_UNIT << 16) | MTK_HW_LRO_REFRESH_TIME,
-		MTK_PDMA_LRO_ALT_REFRESH_TIMER);
+		reg_map->pdma.lro_alt_timer);
 
 	/* enable max 4-depth VLAN support including switch special tag */
 	lro_ctrl_dw3 |= MTK_LRO_VLAN_VID_CMP_DEPTH | MTK_LRO_VLAN_EN;
@@ -4465,7 +4535,8 @@ static int mtk_start_dma(struct mtk_eth *eth)
 				MTK_PDMA_SIZE_8DWORDS | MTK_TX_WB_DDONE |
 				MTK_CHK_DDONE | MTK_MULTI_EN_V2 |
 				MTK_PDMA_MUTLI_CNT | MTK_PDMA_RESV_BUF |
-				MTK_CSR_CLKGATE_BYP, reg_map->pdma.glo_cfg);
+				MTK_DEC_WCOMP | MTK_CSR_CLKGATE_BYP,
+				reg_map->pdma.glo_cfg);
 		} else {
 			mtk_w32(eth, MTK_TX_WB_DDONE | MTK_TX_DMA_EN |
 				MTK_RX_DMA_EN | MTK_MULTI_EN |
@@ -6474,6 +6545,8 @@ static int mtk_probe(struct platform_device *pdev)
 {
 	struct device_node *mac_np, *mux_np;
 	struct mtk_eth *eth;
+	u32 ext_phy_reg;
+	int ext_reset_pin;
 	int err, i;
 
 	eth = devm_kzalloc(&pdev->dev, sizeof(*eth), GFP_KERNEL);
@@ -6670,6 +6743,26 @@ static int mtk_probe(struct platform_device *pdev)
 			of_node_put(mac_np);
 			goto err_deinit_hw;
 		}
+
+		/* A few boards describe their external (2.5G WAN) PHY with the
+		 * legacy "ext-phy-reset-gpios" property instead of a PHY node
+		 * with "reset-gpios". Release the PHY from reset here, before
+		 * the MDIO bus is registered, so that the PHY has finished
+		 * booting when its driver is probed. Otherwise the PHY stays
+		 * in reset, the WAN MAC keeps reporting a bogus 2.5G link and
+		 * no packet can pass (DHCP/PPPoE fail).
+		 */
+		ext_reset_pin = of_get_named_gpio(mac_np, "ext-phy-reset-gpios", 0);
+		if (ext_reset_pin >= 0) {
+			dev_info(eth->dev, "Ext-phy gpio : %d\n", ext_reset_pin);
+			if (!devm_gpio_request(eth->dev, ext_reset_pin,
+					       "ext-phy-reset")) {
+				gpio_direction_output(ext_reset_pin, 0);
+				msleep(300);
+				gpio_set_value(ext_reset_pin, 1);
+				msleep(500);
+			}
+		}
 	}
 
 	err = mtk_napi_init(eth);
@@ -6835,6 +6928,23 @@ static int mtk_probe(struct platform_device *pdev)
 			      MTK_DMA_MONITOR_TIMEOUT);
 	dev_info(eth->dev, "DMA Monitor is running ! (%s)\n", MTK_ETH_RESET_VERSION);
 #endif
+
+	/* Legacy external PHY bring-up: boards using "ext-phy-reg" instead of
+	 * a "phy-handle" rely on the ethernet driver to run the vendor
+	 * specific initialisation (e.g. enabling rate adaption on the 2.5G
+	 * WAN PHY).
+	 */
+	for_each_child_of_node(pdev->dev.of_node, mac_np) {
+		if (!of_device_is_compatible(mac_np, "mediatek,eth-mac"))
+			continue;
+
+		if (of_property_read_u32_index(mac_np, "ext-phy-reg", 0,
+					       &ext_phy_reg))
+			continue;
+
+		dev_info(eth->dev, "Ext-phy reg : %d\n", ext_phy_reg);
+		mtk_soc_extphy_init(eth, ext_phy_reg);
+	}
 
 	return 0;
 

@@ -2158,7 +2158,11 @@ static int skb_to_hnat_info(struct sk_buff *skb,
 	entry.bfib1.sp = foe->udib1.sp;
 #endif
 
-	if (ntohs(eth_hdr(skb)->h_proto) == ETH_P_PPP_SES) {
+	if (IS_L2_BRIDGE(&entry)) {
+		if (!l2br_toggle)
+			return -1;
+		h_proto = ntohs(eth_hdr(skb)->h_proto);
+	} else if (ntohs(eth_hdr(skb)->h_proto) == ETH_P_PPP_SES) {
 		/* Apply PPPoE Bridge packet info to hw_path for further PPE entry preparing */
 		hw_path->flags |= BIT(DEV_PATH_PPPOE);
 		hw_path->pppoe_sid = ntohs(pppoe_hdr(skb)->sid);
@@ -3894,8 +3898,10 @@ static unsigned int mtk_hnat_nf_post_routing(
 			entry->ipv4_hnapt.m_timestamp = foe_timestamp(hnat_priv, true);
 
 		if (entry_hnat_is_bound(entry)) {
-			memset(skb_hnat_info(skb), 0, sizeof(struct hnat_desc));
-
+			/* unshare if head cloned so sibling clones keep their hnat info */
+			if (!skb_shared(skb) && !skb_cow_head(skb, 0))
+				memset(skb_hnat_info(skb), 0, sizeof(struct hnat_desc));
+			
 			return -1;
 		}
 		break;
